@@ -1,5 +1,5 @@
-import javax.swing.*;
 import java.awt.*;
+import javax.swing.*;
 
 public class Lab6 extends JFrame {
 
@@ -14,11 +14,14 @@ public class Lab6 extends JFrame {
 
         add(gamePanel, BorderLayout.CENTER);
         add(controlPanel, BorderLayout.SOUTH);
-
         setVisible(true);
+
+        // request focus AFTER frame is visible
+        gamePanel.requestFocusInWindow();
     }
 
     public static void main(String[] args) {
         new Lab6();
     }
 }
+
