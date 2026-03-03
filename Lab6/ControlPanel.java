@@ -7,9 +7,10 @@ public class ControlPanel extends JPanel {
         JLabel label = new JLabel("Choose Customization:");
 
         String[] options = {
+                "None",
                 "Hat",
                 "Glasses",
-                "Shirt",
+                "Armor",
                 "Sword",
                 "Cape"
         };
@@ -17,8 +18,11 @@ public class ControlPanel extends JPanel {
         JComboBox<String> comboBox = new JComboBox<>(options);
 
         comboBox.addActionListener(e -> {
-            int selectedIndex = comboBox.getSelectedIndex();
-            gamePanel.setCustomization(selectedIndex);
+        int selectedIndex = comboBox.getSelectedIndex();
+        gamePanel.setCustomization(selectedIndex);
+
+        // GIVE FOCUS BACK TO GAME PANEL
+        gamePanel.requestFocusInWindow();
         });
 
         add(label);
