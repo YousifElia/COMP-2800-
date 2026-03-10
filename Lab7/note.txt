@@ -1,0 +1,20 @@
+Task 3 – Runtime Comparison
+
+The single-threaded program processes the entire file sequentially. 
+This means one thread reads and counts every character one by one.
+
+The multithreaded version divides the file into multiple sections and assigns 
+each section to a different thread. These threads execute concurrently, which 
+can reduce the execution time when using large files.
+
+However, multithreading also introduces synchronization overhead because 
+threads must safely update the shared whitespace counter using locks.
+
+For small files the difference may be minimal, but for large files the 
+multithreaded program can perform faster due to parallel processing.
+
+Output:
+Single Thread Count: 1164980
+Single Thread Time: 428 ms
+Multithread Count: 1164980
+Multithread Time: 72 ms
