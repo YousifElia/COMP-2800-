@@ -1,0 +1,28 @@
+Task 3 – Comparison of Single Thread vs Fork/Join
+
+The single-thread version calculates the directory size sequentially.
+It checks each file and subdirectory one by one using recursion.
+
+The Fork/Join version uses multiple threads. Each subdirectory can be
+processed as a separate task. The tasks are executed in parallel using
+the ForkJoinPool.
+
+Because multiple threads run at the same time, the Fork/Join version
+can complete faster when the directory contains many subdirectories
+and files.
+
+However, for very small directories the performance difference may be
+small because creating threads also adds overhead.
+
+Result Example:
+
+OneDrive\Documents
+Single Thread Execution Time: 15 ms
+Fork/Join Execution Time: 20 ms
+
+Everything
+Single Thread Execution Time: 87254 ms
+Fork/Join Execution Time: 23116 ms
+
+In this test, the Fork/Join implementation was faster because it used
+parallel processing.
