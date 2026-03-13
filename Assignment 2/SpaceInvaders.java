@@ -115,28 +115,39 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         int y;
         int width;
         int height;
+        int baseX;
+        int baseY;
+        int baseWidth;
+        int baseHeight;
         int velocityY;
         Image img;
         boolean active;
         boolean harmful;
         int lifeTicks;
+        int maxLifeTicks;
 
         Projectile(int x, int y, int width, int height, int velocityY, Image img) {
             this.x = x;
             this.y = y;
             this.width = width;
             this.height = height;
+            this.baseX = x;
+            this.baseY = y;
+            this.baseWidth = width;
+            this.baseHeight = height;
             this.velocityY = velocityY;
             this.img = img;
             this.active = true;
             this.harmful = true;
             this.lifeTicks = -1;
+            this.maxLifeTicks = -1;
         }
 
         Projectile(int x, int y, int width, int height, int velocityY, Image img, boolean harmful, int lifeTicks) {
             this(x, y, width, height, velocityY, img);
             this.harmful = harmful;
             this.lifeTicks = lifeTicks;
+            this.maxLifeTicks = lifeTicks;
         }
     }
 
@@ -508,6 +519,9 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         for (int i = 0; i < enemyShotArray.size(); i++) {
             Projectile shot = enemyShotArray.get(i);
             if (shot.lifeTicks > 0) {
+                if (!shot.harmful) {
+                    animateExplosionShot(shot);
+                }
                 shot.lifeTicks--;
                 if (shot.lifeTicks == 0) {
                     shot.active = false;
@@ -522,6 +536,24 @@ public class SpaceInvaders extends JPanel implements ActionListener {
                 onPlayerHit();
             }
         }
+    }
+
+    private void animateExplosionShot(Projectile shot) {
+        if (shot.maxLifeTicks <= 0) {
+            return;
+        }
+
+        double progress = 1.0 - ((double) shot.lifeTicks / shot.maxLifeTicks);
+        double scale = 1.0 + progress * 0.8;
+        int scaledWidth = Math.max(shot.baseWidth, (int) Math.round(shot.baseWidth * scale));
+        int scaledHeight = Math.max(shot.baseHeight, (int) Math.round(shot.baseHeight * scale));
+        int centerX = shot.baseX + shot.baseWidth / 2;
+        int centerY = shot.baseY + shot.baseHeight / 2;
+
+        shot.width = scaledWidth;
+        shot.height = scaledHeight;
+        shot.x = centerX - scaledWidth / 2;
+        shot.y = centerY - scaledHeight / 2;
     }
 
     private void moveMeteors() {
