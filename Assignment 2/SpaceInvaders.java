@@ -15,13 +15,14 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     enum GameState {
         MENU,
         RUNNING,
-        GAME_OVER
+        GAME_OVER,
+        WIN
     }
 
     static class Balance {
         static final int FPS_DELAY_MS = 16;
         static final int STARTING_LIVES = 3;
-        static final int MAX_LEVEL = 5;
+        static final int MAX_LEVEL = 6;
 
         static final int SHIP_SPEED = 6;
         static final int PLAYER_BULLET_SPEED = -10;
@@ -38,6 +39,9 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         static final int SCORE_WAVE_CLEAR = 20;
 
         static double alienSpeedForLevel(int level) {
+            // Levels 5 and 6 are easier — cap speed increase
+            if (level >= 6) return ALIEN_BASE_SPEED + 2 * ALIEN_SPEED_PER_LEVEL;
+            if (level >= 5) return ALIEN_BASE_SPEED + 3 * ALIEN_SPEED_PER_LEVEL;
             return ALIEN_BASE_SPEED + (level - 1) * ALIEN_SPEED_PER_LEVEL;
         }
     }
@@ -248,6 +252,7 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         meteorProfiles.put(3, new MeteorProfile(0.01, 0.004));
         meteorProfiles.put(4, new MeteorProfile(0.008, 0.008));
         meteorProfiles.put(5, new MeteorProfile(0.012, 0.012));
+        meteorProfiles.put(6, new MeteorProfile(0.006, 0.003));
 
         gameLoop = new Timer(Balance.FPS_DELAY_MS, this);
         gameLoop.start();
@@ -272,16 +277,41 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         drawEnemyShots(g);
         drawMeteors(g);
         drawHud(g);
+
+        if (gameState == GameState.GAME_OVER) {
+            drawGameOver(g);
+        } else if (gameState == GameState.WIN) {
+            drawWin(g);
+        }
     }
 
     private void drawMenu(Graphics g) {
-        g.setColor(Color.WHITE);
-        g.setFont(new Font("Arial", Font.BOLD, 40));
-        g.drawString("Space Invaders", boarderwidth / 2 - 145, boarderheight / 2 - 60);
+        Graphics2D g2d = (Graphics2D) g;
+        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
-        g.setFont(new Font("Arial", Font.PLAIN, 20));
-        g.drawString("Press ENTER to Start", boarderwidth / 2 - 100, boarderheight / 2 - 10);
-        g.drawString("Move: LEFT/RIGHT | Shoot: SPACE", boarderwidth / 2 - 145, boarderheight / 2 + 25);
+        g2d.setFont(new Font("Arial", Font.BOLD, 46));
+        FontMetrics fm = g2d.getFontMetrics();
+        String title = "SPACE INVADERS";
+        g2d.setColor(new Color(80, 200, 255));
+        g2d.drawString(title, boarderwidth / 2 - fm.stringWidth(title) / 2, boarderheight / 2 - 80);
+
+        g2d.setFont(new Font("Arial", Font.ITALIC, 16));
+        fm = g2d.getFontMetrics();
+        String sub = "6 Levels of Alien Mayhem";
+        g2d.setColor(new Color(255, 210, 60));
+        g2d.drawString(sub, boarderwidth / 2 - fm.stringWidth(sub) / 2, boarderheight / 2 - 42);
+
+        g2d.setFont(new Font("Arial", Font.BOLD, 22));
+        fm = g2d.getFontMetrics();
+        String start = "Press ENTER to Start";
+        g2d.setColor(Color.WHITE);
+        g2d.drawString(start, boarderwidth / 2 - fm.stringWidth(start) / 2, boarderheight / 2 + 10);
+
+        g2d.setFont(new Font("Arial", Font.PLAIN, 15));
+        fm = g2d.getFontMetrics();
+        String controls = "LEFT / RIGHT to Move  |  SPACE to Shoot";
+        g2d.setColor(new Color(160, 160, 160));
+        g2d.drawString(controls, boarderwidth / 2 - fm.stringWidth(controls) / 2, boarderheight / 2 + 45);
     }
 
     private void drawShip(Graphics g) {
@@ -327,16 +357,24 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     }
 
     private void drawEnemyShots(Graphics g) {
-        g.setColor(Color.PINK);
+        Graphics2D g2d = (Graphics2D) g;
         for (int i = 0; i < enemyShotArray.size(); i++) {
             Projectile shot = enemyShotArray.get(i);
             if (!shot.active) {
                 continue;
             }
 
-            if (shot.img != null) {
+            if (!shot.harmful && shot.maxLifeTicks > 0 && shot.img != null) {
+                // Explosion: grow scale + fade out
+                float alpha = Math.max(0.05f, (float) shot.lifeTicks / shot.maxLifeTicks);
+                Composite orig = g2d.getComposite();
+                g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
+                g2d.drawImage(shot.img, shot.x, shot.y, shot.width, shot.height, null);
+                g2d.setComposite(orig);
+            } else if (shot.img != null) {
                 g.drawImage(shot.img, shot.x, shot.y, shot.width, shot.height, null);
             } else {
+                g.setColor(Color.PINK);
                 g.fillRect(shot.x, shot.y, shot.width, shot.height);
             }
         }
@@ -364,12 +402,6 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         g.drawString("Score: " + score, 10, 28);
         g.drawString("Level: " + level, 10, 54);
         drawLives(g);
-
-        if (gameState == GameState.GAME_OVER) {
-            g.setFont(new Font("Arial", Font.BOLD, 28));
-            g.drawString("Game Over", boarderwidth / 2 - 80, boarderheight / 2 - 10);
-            g.drawString("Press Space to restart", boarderwidth / 2 - 150, boarderheight / 2 + 28);
-        }
     }
 
     private void drawLives(Graphics g) {
@@ -389,6 +421,80 @@ public class SpaceInvaders extends JPanel implements ActionListener {
                 g.fillRect(x, y, iconWidth, iconHeight);
             }
         }
+    }
+
+    private void drawGameOver(Graphics g) {
+        Graphics2D g2d = (Graphics2D) g;
+        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        g2d.setColor(new Color(0, 0, 0, 175));
+        g2d.fillRect(0, 0, boarderwidth, boarderheight);
+
+        // Rounded card background
+        int cardW = 360, cardH = 200;
+        int cardX = boarderwidth / 2 - cardW / 2;
+        int cardY = boarderheight / 2 - cardH / 2 - 20;
+        g2d.setColor(new Color(25, 25, 40));
+        g2d.fillRoundRect(cardX, cardY, cardW, cardH, 24, 24);
+        g2d.setColor(new Color(220, 50, 50, 180));
+        g2d.setStroke(new BasicStroke(2.5f));
+        g2d.drawRoundRect(cardX, cardY, cardW, cardH, 24, 24);
+
+        g2d.setFont(new Font("Arial", Font.BOLD, 46));
+        FontMetrics fm = g2d.getFontMetrics();
+        String title = "GAME OVER";
+        g2d.setColor(new Color(220, 50, 50));
+        g2d.drawString(title, boarderwidth / 2 - fm.stringWidth(title) / 2, cardY + 62);
+
+        g2d.setFont(new Font("Arial", Font.BOLD, 21));
+        fm = g2d.getFontMetrics();
+        g2d.setColor(Color.WHITE);
+        String scoreStr = "Score: " + score;
+        g2d.drawString(scoreStr, boarderwidth / 2 - fm.stringWidth(scoreStr) / 2, cardY + 104);
+        String levelStr = "Level Reached: " + level;
+        g2d.drawString(levelStr, boarderwidth / 2 - fm.stringWidth(levelStr) / 2, cardY + 133);
+
+        g2d.setFont(new Font("Arial", Font.PLAIN, 14));
+        fm = g2d.getFontMetrics();
+        g2d.setColor(new Color(170, 170, 170));
+        String prompt = "SPACE to Restart  |  ENTER for Menu";
+        g2d.drawString(prompt, boarderwidth / 2 - fm.stringWidth(prompt) / 2, cardY + 172);
+    }
+
+    private void drawWin(Graphics g) {
+        Graphics2D g2d = (Graphics2D) g;
+        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+
+        g2d.setColor(new Color(0, 0, 20, 200));
+        g2d.fillRect(0, 0, boarderwidth, boarderheight);
+
+        // Rounded card background
+        int cardW = 380, cardH = 200;
+        int cardX = boarderwidth / 2 - cardW / 2;
+        int cardY = boarderheight / 2 - cardH / 2 - 20;
+        g2d.setColor(new Color(20, 30, 20));
+        g2d.fillRoundRect(cardX, cardY, cardW, cardH, 24, 24);
+        g2d.setColor(new Color(255, 215, 0, 180));
+        g2d.setStroke(new BasicStroke(2.5f));
+        g2d.drawRoundRect(cardX, cardY, cardW, cardH, 24, 24);
+
+        g2d.setFont(new Font("Arial", Font.BOLD, 52));
+        FontMetrics fm = g2d.getFontMetrics();
+        String title = "YOU WIN!";
+        g2d.setColor(new Color(255, 215, 0));
+        g2d.drawString(title, boarderwidth / 2 - fm.stringWidth(title) / 2, cardY + 66);
+
+        g2d.setFont(new Font("Arial", Font.BOLD, 24));
+        fm = g2d.getFontMetrics();
+        g2d.setColor(Color.WHITE);
+        String scoreStr = "Final Score: " + score;
+        g2d.drawString(scoreStr, boarderwidth / 2 - fm.stringWidth(scoreStr) / 2, cardY + 112);
+
+        g2d.setFont(new Font("Arial", Font.PLAIN, 15));
+        fm = g2d.getFontMetrics();
+        g2d.setColor(new Color(170, 170, 170));
+        String prompt = "Press ENTER to return to Menu";
+        g2d.drawString(prompt, boarderwidth / 2 - fm.stringWidth(prompt) / 2, cardY + 160);
     }
 
     public void move() {
@@ -591,15 +697,10 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     }
 
     private double getObjectSpawnMultiplierForLevel() {
-        if (level >= 5) {
-            return 0.25;
-        }
-        if (level >= 4) {
-            return 0.3;
-        }
-        if (level >= 3) {
-            return 0.4;
-        }
+        if (level == 6) return 0.5;
+        if (level == 5) return 0.45;
+        if (level == 4) return 0.3;
+        if (level == 3) return 0.4;
         return 1.0;
     }
 
@@ -679,7 +780,13 @@ public class SpaceInvaders extends JPanel implements ActionListener {
 
     private void startNextLevel() {
         score += alienCols * alienRows * Balance.SCORE_WAVE_CLEAR;
-        level = Math.min(Balance.MAX_LEVEL, level + 1);
+        int nextLevel = level + 1;
+        if (nextLevel > Balance.MAX_LEVEL) {
+            gameState = GameState.WIN;
+            return;
+        }
+
+        level = nextLevel;
         lives++;
         playerDamaged = false;
         ship.img = playerDefaultImg;
@@ -727,13 +834,9 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     }
 
     private int pickEnemyTypeForLevel() {
-        if (level <= 1) {
-            return REGULAR_UFO;
-        }
-        if (level == 2) {
-            return random.nextBoolean() ? REGULAR_UFO : ELITE_UFO;
-        }
-        return ELITE_UFO;
+        if (level == 1 || level == 6) return REGULAR_UFO;
+        if (level == 2 || level == 5) return random.nextBoolean() ? REGULAR_UFO : ELITE_UFO;
+        return ELITE_UFO; // levels 3, 4
     }
 
     private boolean detectCollision(Block a, Block b) {
@@ -776,6 +879,9 @@ public class SpaceInvaders extends JPanel implements ActionListener {
             public void actionPerformed(ActionEvent e) {
                 if (gameState == GameState.MENU) {
                     startNewGame();
+                } else if (gameState == GameState.WIN || gameState == GameState.GAME_OVER) {
+                    gameState = GameState.MENU;
+                    if (!gameLoop.isRunning()) gameLoop.start();
                 }
             }
         });
@@ -878,7 +984,7 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     public void actionPerformed(ActionEvent e) {
         move();
         repaint();
-        if (gameState == GameState.GAME_OVER) {
+        if (gameState == GameState.GAME_OVER || gameState == GameState.WIN) {
             gameLoop.stop();
         }
     }
