@@ -69,6 +69,7 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     Image laserGreenImg;
     Image laserRedShotImg;
     Image laserGreenShotImg;
+    Image explosionImg;
     Image meteorSmallImg;
     Image meteorBigImg;
     Image regularEnemyImg;
@@ -117,6 +118,8 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         int velocityY;
         Image img;
         boolean active;
+        boolean harmful;
+        int lifeTicks;
 
         Projectile(int x, int y, int width, int height, int velocityY, Image img) {
             this.x = x;
@@ -126,6 +129,14 @@ public class SpaceInvaders extends JPanel implements ActionListener {
             this.velocityY = velocityY;
             this.img = img;
             this.active = true;
+            this.harmful = true;
+            this.lifeTicks = -1;
+        }
+
+        Projectile(int x, int y, int width, int height, int velocityY, Image img, boolean harmful, int lifeTicks) {
+            this(x, y, width, height, velocityY, img);
+            this.harmful = harmful;
+            this.lifeTicks = lifeTicks;
         }
     }
 
@@ -207,6 +218,7 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         laserGreenImg = loadImage("laserGreen.png");
         laserRedShotImg = loadImage("laserRedShot.png");
         laserGreenShotImg = loadImage("laserGreenShot.png");
+        explosionImg = loadImage("explosion.png");
         meteorSmallImg = loadImage("meteorSmall.png");
         meteorBigImg = loadImage("meteorBig.png");
         regularEnemyImg = loadImage("enemyUFO.png");
@@ -222,12 +234,13 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         meteorProfiles = new HashMap<>();
         meteorProfiles.put(1, new MeteorProfile(0.0, 0.0));
         meteorProfiles.put(2, new MeteorProfile(0.015, 0.0));
-        meteorProfiles.put(3, new MeteorProfile(0.025, 0.01));
-        meteorProfiles.put(4, new MeteorProfile(0.02, 0.03));
-        meteorProfiles.put(5, new MeteorProfile(0.045, 0.045));
+        meteorProfiles.put(3, new MeteorProfile(0.01, 0.004));
+        meteorProfiles.put(4, new MeteorProfile(0.008, 0.008));
+        meteorProfiles.put(5, new MeteorProfile(0.012, 0.012));
 
         gameLoop = new Timer(Balance.FPS_DELAY_MS, this);
         gameLoop.start();
+        
     }
 
     @Override
@@ -392,16 +405,17 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     }
 
     private void updateShipMovement() {
-        if (playerDamaged) {
-            ship.img = playerDamagedImg != null ? playerDamagedImg : playerDefaultImg;
-            return;
-        }
-
         if (movingLeft && !movingRight) {
             ship.x = Math.max(0, ship.x - shipVelocity);
-            ship.img = playerLeftImg != null ? playerLeftImg : playerDefaultImg;
         } else if (movingRight && !movingLeft) {
             ship.x = Math.min(boarderwidth - ship.width, ship.x + shipVelocity);
+        }
+
+        if (playerDamaged) {
+            ship.img = playerDamagedImg != null ? playerDamagedImg : playerDefaultImg;
+        } else if (movingLeft && !movingRight) {
+            ship.img = playerLeftImg != null ? playerLeftImg : playerDefaultImg;
+        } else if (movingRight && !movingLeft) {
             ship.img = playerRightImg != null ? playerRightImg : playerDefaultImg;
         } else {
             ship.img = playerDefaultImg;
@@ -464,7 +478,7 @@ public class SpaceInvaders extends JPanel implements ActionListener {
             alien.alive = false;
             alienCount--;
             score += alien.enemyType == ELITE_UFO ? Balance.SCORE_ELITE : Balance.SCORE_REGULAR;
-            spawnEnemyDeathShot(alien);
+            spawnEnemyDeathBlast(alien);
             return;
         }
 
@@ -473,23 +487,37 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         }
     }
 
-    private void spawnEnemyDeathShot(Block alien) {
-        if (random.nextDouble() > getObjectSpawnMultiplierForLevel()) {
-            return;
-        }
+    private void spawnEnemyDeathBlast(Block alien) {
+        int centerX = alien.x + alien.width / 2;
+        int centerY = alien.y + alien.height / 2;
+        int blastSize = tileSize + 10;
 
-        Image shotImg = random.nextBoolean() ? laserGreenShotImg : laserRedShotImg;
-        int shotX = alien.x + alien.width / 2 - bulletWidth / 2;
-        int shotY = alien.y + alien.height / 2;
-        enemyShotArray.add(new Projectile(shotX, shotY, bulletWidth + 4, bulletHeight + 2, Balance.ENEMY_DEATH_SHOT_SPEED, shotImg));
+        enemyShotArray.add(new Projectile(
+            centerX - blastSize / 2,
+            centerY - blastSize / 2,
+            blastSize,
+            blastSize,
+            0,
+            explosionImg,
+            false,
+            10
+        ));
     }
 
     private void moveEnemyShots() {
         for (int i = 0; i < enemyShotArray.size(); i++) {
             Projectile shot = enemyShotArray.get(i);
+            if (shot.lifeTicks > 0) {
+                shot.lifeTicks--;
+                if (shot.lifeTicks == 0) {
+                    shot.active = false;
+                    continue;
+                }
+            }
+
             shot.y += shot.velocityY;
 
-            if (shot.active && detectCollision(shot, ship)) {
+            if (shot.active && shot.harmful && detectCollision(shot, ship)) {
                 shot.active = false;
                 onPlayerHit();
             }
@@ -531,7 +559,16 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     }
 
     private double getObjectSpawnMultiplierForLevel() {
-        return level >= 4 ? 0.4 : 1.0;
+        if (level >= 5) {
+            return 0.25;
+        }
+        if (level >= 4) {
+            return 0.3;
+        }
+        if (level >= 3) {
+            return 0.4;
+        }
+        return 1.0;
     }
 
     private Meteor createMeteorFromEnemy(Block enemy, boolean bigMeteor) {
