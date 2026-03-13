@@ -812,9 +812,48 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         alienArray.clear();
         alienSpeed = Balance.alienSpeedForLevel(level);
 
+        if (level == 6) {
+            createLevel6Formation();
+            return;
+        }
+
         for (int c = 0; c < alienCols; c++) {
             for (int r = 0; r < alienRows; r++) {
                 Block alien = createAlienForLevel(c, r);
+                alienArray.add(alien);
+            }
+        }
+        alienCount = alienArray.size();
+    }
+
+    private void createLevel6Formation() {
+        alienCols = 7;
+        alienRows = 5;
+
+        // ELITE_UFO positions form a "W" shape; all other cells are REGULAR_UFO
+        //  E R R R R R E
+        //  E R R E R R E
+        //  E R R E R R E
+        //  E R E R E R E
+        //  R E R R R E R
+        boolean[][] wShape = {
+            { true,  false, false, false, false, false, true  },
+            { true,  false, false, true, false, false, true  },
+            { true,  false, false, true,  false, false, true  },
+            { true,  false, true, false,  true, false, true  },
+            { false, true,  false,  false, false,  true,  false },
+        };
+
+        for (int c = 0; c < alienCols; c++) {
+            for (int r = 0; r < alienRows; r++) {
+                int enemyType = wShape[r][c] ? ELITE_UFO : REGULAR_UFO;
+                Image enemyImage = enemyType == ELITE_UFO ? eliteEnemyImg : regularEnemyImg;
+                Block alien = new Block(alienX + c * alienWidth, alienY + r * alienHeight, alienWidth, alienHeight, enemyImage);
+                alien.enemyType = enemyType;
+                alien.maxHealth = enemyType == ELITE_UFO ? 2 : 1;
+                alien.health = alien.maxHealth;
+                alien.col = c;
+                alien.row = r;
                 alienArray.add(alien);
             }
         }
