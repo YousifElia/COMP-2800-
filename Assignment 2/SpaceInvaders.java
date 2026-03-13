@@ -2,6 +2,8 @@ import java.awt.*;
 import java.awt.event.*;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Random;
 import javax.swing.*;
 
@@ -9,6 +11,46 @@ public class SpaceInvaders extends JPanel implements ActionListener {
 
     static final int REGULAR_UFO = 1;
     static final int ELITE_UFO = 2;
+
+    enum GameState {
+        MENU,
+        RUNNING,
+        GAME_OVER
+    }
+
+    static class Balance {
+        static final int FPS_DELAY_MS = 16;
+        static final int STARTING_LIVES = 3;
+        static final int MAX_LEVEL = 5;
+
+        static final int SHIP_SPEED = 6;
+        static final int PLAYER_BULLET_SPEED = -10;
+        static final int ENEMY_DEATH_SHOT_SPEED = 5;
+        static final int SMALL_METEOR_SPEED = 4;
+        static final int BIG_METEOR_SPEED = 3;
+
+        static final double ALIEN_BASE_SPEED = 0.9;
+        static final double ALIEN_SPEED_PER_LEVEL = 0.18;
+        static final int PLAYER_HIT_INVULNERABLE_TICKS = 60;
+
+        static final int SCORE_REGULAR = 10;
+        static final int SCORE_ELITE = 25;
+        static final int SCORE_WAVE_CLEAR = 20;
+
+        static double alienSpeedForLevel(int level) {
+            return ALIEN_BASE_SPEED + (level - 1) * ALIEN_SPEED_PER_LEVEL;
+        }
+    }
+
+    static class MeteorProfile {
+        final double smallSpawnChance;
+        final double bigSpawnChance;
+
+        MeteorProfile(double smallSpawnChance, double bigSpawnChance) {
+            this.smallSpawnChance = smallSpawnChance;
+            this.bigSpawnChance = bigSpawnChance;
+        }
+    }
 
     // board dimensions
     int tileSize = 32;
@@ -19,8 +61,16 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     int boarderheight = tileSize * rows;
 
     Image playerDefaultImg;
+    Image playerDamagedImg;
     Image playerLeftImg;
     Image playerRightImg;
+    Image lifeImg;
+    Image laserRedImg;
+    Image laserGreenImg;
+    Image laserRedShotImg;
+    Image laserGreenShotImg;
+    Image meteorSmallImg;
+    Image meteorBigImg;
     Image regularEnemyImg;
     Image eliteEnemyImg;
     Image eliteEnemyDamagedImg;
@@ -36,6 +86,10 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         int health;
         int maxHealth;
         int enemyType;
+        int col;
+        int row;
+        double preciseX;
+        double preciseY;
 
         Block(int x, int y, int width, int height, Image img) {
             this.x = x;
@@ -48,6 +102,50 @@ public class SpaceInvaders extends JPanel implements ActionListener {
             this.health = 1;
             this.maxHealth = 1;
             this.enemyType = REGULAR_UFO;
+            this.col = -1;
+            this.row = -1;
+            this.preciseX = x;
+            this.preciseY = y;
+        }
+    }
+
+    class Projectile {
+        int x;
+        int y;
+        int width;
+        int height;
+        int velocityY;
+        Image img;
+        boolean active;
+
+        Projectile(int x, int y, int width, int height, int velocityY, Image img) {
+            this.x = x;
+            this.y = y;
+            this.width = width;
+            this.height = height;
+            this.velocityY = velocityY;
+            this.img = img;
+            this.active = true;
+        }
+    }
+
+    class Meteor {
+        int x;
+        int y;
+        int width;
+        int height;
+        int velocityY;
+        Image img;
+        boolean active;
+
+        Meteor(int x, int y, int width, int height, int velocityY, Image img) {
+            this.x = x;
+            this.y = y;
+            this.width = width;
+            this.height = height;
+            this.velocityY = velocityY;
+            this.img = img;
+            this.active = true;
         }
     }
 
@@ -56,10 +154,12 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     int shipHeight = tileSize;
     int shipX = tileSize * cols / 2 - tileSize;
     int shipY = tileSize * rows - tileSize * 2;
-    int shipVelocity = 6;
+    int shipVelocity = Balance.SHIP_SPEED;
     Block ship;
     boolean movingLeft = false;
     boolean movingRight = false;
+    boolean useRedPlayerShot = true;
+    boolean playerDamaged = false;
 
     // aliens
     ArrayList<Block> alienArray;
@@ -71,19 +171,26 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     int alienRows = 2;
     int alienCols = 3;
     int alienCount = 0;
-    int alienVelocity = 1;
+    int alienDirection = 1;
+    double alienSpeed = 1;
     int level = 1;
 
-    // bullets
-    ArrayList<Block> bulletArray;
+    // player bullets
+    ArrayList<Projectile> bulletArray;
+    ArrayList<Projectile> enemyShotArray;
+    ArrayList<Meteor> meteorArray;
     int bulletWidth = Math.max(4, tileSize / 8);
     int bulletHeight = tileSize / 2;
-    int bulletVelocity = -10;
+    int bulletVelocity = Balance.PLAYER_BULLET_SPEED;
 
     Timer gameLoop;
     boolean gameOver = false;
     int score = 0;
+    int lives = Balance.STARTING_LIVES;
+    int invulnerableTicks = 0;
+    GameState gameState = GameState.MENU;
     Random random = new Random();
+    Map<Integer, MeteorProfile> meteorProfiles;
 
     public SpaceInvaders() {
         setPreferredSize(new Dimension(boarderwidth, boarderheight));
@@ -92,18 +199,34 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         setupKeyBindings();
 
         playerDefaultImg = loadImage("player.png");
-        playerLeftImg = loadImage("playerleft.png", "playerLeft.png");
-        playerRightImg = loadImage("playerright.png", "playerRight.png");
-        regularEnemyImg = loadImage("enemy1.png", "enemyUFO.png");
-        eliteEnemyImg = loadImage("enemy2.png", "enemyShip.png");
+        playerDamagedImg = loadImage("playerDamaged.png");
+        playerLeftImg = loadImage("playerLeft.png");
+        playerRightImg = loadImage("playerRight.png");
+        lifeImg = loadImage("life.png");
+        laserRedImg = loadImage("laserRed.png");
+        laserGreenImg = loadImage("laserGreen.png");
+        laserRedShotImg = loadImage("laserRedShot.png");
+        laserGreenShotImg = loadImage("laserGreenShot.png");
+        meteorSmallImg = loadImage("meteorSmall.png");
+        meteorBigImg = loadImage("meteorBig.png");
+        regularEnemyImg = loadImage("enemyUFO.png");
+        eliteEnemyImg = loadImage("enemyShip.png");
         eliteEnemyDamagedImg = loadImage("enemy2_damaged.png");
 
         ship = new Block(shipX, shipY, shipWidth, shipHeight, playerDefaultImg);
         alienArray = new ArrayList<>();
         bulletArray = new ArrayList<>();
+        enemyShotArray = new ArrayList<>();
+        meteorArray = new ArrayList<>();
 
-        gameLoop = new Timer(16, this);
-        startLevel(1);
+        meteorProfiles = new HashMap<>();
+        meteorProfiles.put(1, new MeteorProfile(0.0, 0.0));
+        meteorProfiles.put(2, new MeteorProfile(0.015, 0.0));
+        meteorProfiles.put(3, new MeteorProfile(0.025, 0.01));
+        meteorProfiles.put(4, new MeteorProfile(0.02, 0.03));
+        meteorProfiles.put(5, new MeteorProfile(0.045, 0.045));
+
+        gameLoop = new Timer(Balance.FPS_DELAY_MS, this);
         gameLoop.start();
     }
 
@@ -114,10 +237,27 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     }
 
     public void draw(Graphics g) {
+        if (gameState == GameState.MENU) {
+            drawMenu(g);
+            return;
+        }
+
         drawShip(g);
         drawAliens(g);
         drawBullets(g);
+        drawEnemyShots(g);
+        drawMeteors(g);
         drawHud(g);
+    }
+
+    private void drawMenu(Graphics g) {
+        g.setColor(Color.WHITE);
+        g.setFont(new Font("Arial", Font.BOLD, 40));
+        g.drawString("Space Invaders", boarderwidth / 2 - 145, boarderheight / 2 - 60);
+
+        g.setFont(new Font("Arial", Font.PLAIN, 20));
+        g.drawString("Press ENTER to Start", boarderwidth / 2 - 100, boarderheight / 2 - 10);
+        g.drawString("Move: LEFT/RIGHT | Shoot: SPACE", boarderwidth / 2 - 145, boarderheight / 2 + 25);
     }
 
     private void drawShip(Graphics g) {
@@ -149,9 +289,47 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     private void drawBullets(Graphics g) {
         g.setColor(Color.WHITE);
         for (int i = 0; i < bulletArray.size(); i++) {
-            Block bullet = bulletArray.get(i);
-            if (!bullet.used) {
+            Projectile bullet = bulletArray.get(i);
+            if (!bullet.active) {
+                continue;
+            }
+
+            if (bullet.img != null) {
+                g.drawImage(bullet.img, bullet.x, bullet.y, bullet.width, bullet.height, null);
+            } else {
                 g.fillRect(bullet.x, bullet.y, bullet.width, bullet.height);
+            }
+        }
+    }
+
+    private void drawEnemyShots(Graphics g) {
+        g.setColor(Color.PINK);
+        for (int i = 0; i < enemyShotArray.size(); i++) {
+            Projectile shot = enemyShotArray.get(i);
+            if (!shot.active) {
+                continue;
+            }
+
+            if (shot.img != null) {
+                g.drawImage(shot.img, shot.x, shot.y, shot.width, shot.height, null);
+            } else {
+                g.fillRect(shot.x, shot.y, shot.width, shot.height);
+            }
+        }
+    }
+
+    private void drawMeteors(Graphics g) {
+        g.setColor(new Color(170, 120, 60));
+        for (int i = 0; i < meteorArray.size(); i++) {
+            Meteor meteor = meteorArray.get(i);
+            if (!meteor.active) {
+                continue;
+            }
+
+            if (meteor.img != null) {
+                g.drawImage(meteor.img, meteor.x, meteor.y, meteor.width, meteor.height, null);
+            } else {
+                g.fillOval(meteor.x, meteor.y, meteor.width, meteor.height);
             }
         }
     }
@@ -161,19 +339,52 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         g.setFont(new Font("Arial", Font.BOLD, 22));
         g.drawString("Score: " + score, 10, 28);
         g.drawString("Level: " + level, 10, 54);
+        drawLives(g);
 
-        if (gameOver) {
+        if (gameState == GameState.GAME_OVER) {
             g.setFont(new Font("Arial", Font.BOLD, 28));
             g.drawString("Game Over", boarderwidth / 2 - 80, boarderheight / 2 - 10);
             g.drawString("Press Space to restart", boarderwidth / 2 - 150, boarderheight / 2 + 28);
         }
     }
 
+    private void drawLives(Graphics g) {
+        int iconWidth = tileSize;
+        int iconHeight = tileSize;
+        int spacing = 4;
+        int totalWidth = lives * iconWidth + Math.max(0, lives - 1) * spacing;
+        int startX = boarderwidth - totalWidth - 10;
+        int y = 10;
+
+        for (int i = 0; i < lives; i++) {
+            int x = startX + i * (iconWidth + spacing);
+            if (lifeImg != null) {
+                g.drawImage(lifeImg, x, y, iconWidth, iconHeight, null);
+            } else {
+                g.setColor(Color.GREEN);
+                g.fillRect(x, y, iconWidth, iconHeight);
+            }
+        }
+    }
+
     public void move() {
+        if (gameState != GameState.RUNNING) {
+            return;
+        }
+
         updateShipMovement();
         moveAliens();
         moveBullets();
+        moveEnemyShots();
+        moveMeteors();
+        spawnMeteors();
         cleanupBullets();
+        cleanupEnemyShots();
+        cleanupMeteors();
+
+        if (invulnerableTicks > 0) {
+            invulnerableTicks--;
+        }
 
         if (alienCount == 0 && !gameOver) {
             startNextLevel();
@@ -181,6 +392,11 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     }
 
     private void updateShipMovement() {
+        if (playerDamaged) {
+            ship.img = playerDamagedImg != null ? playerDamagedImg : playerDefaultImg;
+            return;
+        }
+
         if (movingLeft && !movingRight) {
             ship.x = Math.max(0, ship.x - shipVelocity);
             ship.img = playerLeftImg != null ? playerLeftImg : playerDefaultImg;
@@ -201,47 +417,54 @@ public class SpaceInvaders extends JPanel implements ActionListener {
                 continue;
             }
 
-            alien.x += alienVelocity;
+            alien.preciseX += alienDirection * alienSpeed;
+            alien.x = (int) Math.round(alien.preciseX);
             if (alien.x + alien.width >= boarderwidth || alien.x <= 0) {
                 hitEdge = true;
             }
 
             if (alien.y + alien.height >= ship.y) {
-                gameOver = true;
+                onPlayerHit();
+                resetWavePosition();
+                return;
             }
         }
 
         if (hitEdge) {
-            alienVelocity *= -1;
+            alienDirection *= -1;
             for (int i = 0; i < alienArray.size(); i++) {
-                alienArray.get(i).x += alienVelocity;
-                alienArray.get(i).y += alienHeight;
+                Block alien = alienArray.get(i);
+                alien.preciseX += alienDirection;
+                alien.preciseY += alienHeight;
+                alien.x = (int) Math.round(alien.preciseX);
+                alien.y = (int) Math.round(alien.preciseY);
             }
         }
     }
 
     private void moveBullets() {
         for (int i = 0; i < bulletArray.size(); i++) {
-            Block bullet = bulletArray.get(i);
-            bullet.y += bulletVelocity;
+            Projectile bullet = bulletArray.get(i);
+            bullet.y += bullet.velocityY;
 
             for (int j = 0; j < alienArray.size(); j++) {
                 Block alien = alienArray.get(j);
-                if (!bullet.used && alien.alive && detectCollision(bullet, alien)) {
+                if (bullet.active && alien.alive && detectCollision(bullet, alien)) {
                     applyBulletHit(alien, bullet);
                 }
             }
         }
     }
 
-    private void applyBulletHit(Block alien, Block bullet) {
-        bullet.used = true;
+    private void applyBulletHit(Block alien, Projectile bullet) {
+        bullet.active = false;
         alien.health--;
 
         if (alien.health <= 0) {
             alien.alive = false;
             alienCount--;
-            score += alien.enemyType == ELITE_UFO ? 25 : 10;
+            score += alien.enemyType == ELITE_UFO ? Balance.SCORE_ELITE : Balance.SCORE_REGULAR;
+            spawnEnemyDeathShot(alien);
             return;
         }
 
@@ -250,31 +473,168 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         }
     }
 
+    private void spawnEnemyDeathShot(Block alien) {
+        if (random.nextDouble() > getObjectSpawnMultiplierForLevel()) {
+            return;
+        }
+
+        Image shotImg = random.nextBoolean() ? laserGreenShotImg : laserRedShotImg;
+        int shotX = alien.x + alien.width / 2 - bulletWidth / 2;
+        int shotY = alien.y + alien.height / 2;
+        enemyShotArray.add(new Projectile(shotX, shotY, bulletWidth + 4, bulletHeight + 2, Balance.ENEMY_DEATH_SHOT_SPEED, shotImg));
+    }
+
+    private void moveEnemyShots() {
+        for (int i = 0; i < enemyShotArray.size(); i++) {
+            Projectile shot = enemyShotArray.get(i);
+            shot.y += shot.velocityY;
+
+            if (shot.active && detectCollision(shot, ship)) {
+                shot.active = false;
+                onPlayerHit();
+            }
+        }
+    }
+
+    private void moveMeteors() {
+        for (int i = 0; i < meteorArray.size(); i++) {
+            Meteor meteor = meteorArray.get(i);
+            meteor.y += meteor.velocityY;
+
+            if (meteor.active && detectCollision(meteor, ship)) {
+                meteor.active = false;
+                onPlayerHit();
+            }
+        }
+    }
+
+    private void spawnMeteors() {
+        MeteorProfile profile = meteorProfiles.getOrDefault(level, meteorProfiles.get(5));
+        if (profile == null) {
+            return;
+        }
+
+        Map<Integer, Block> launchers = getBottomAliveEnemiesByColumn();
+        if (launchers.isEmpty()) {
+            return;
+        }
+
+        for (Block launcher : launchers.values()) {
+            double spawnMultiplier = getObjectSpawnMultiplierForLevel();
+            if (profile.smallSpawnChance > 0 && random.nextDouble() < profile.smallSpawnChance * spawnMultiplier) {
+                meteorArray.add(createMeteorFromEnemy(launcher, false));
+            }
+            if (profile.bigSpawnChance > 0 && random.nextDouble() < profile.bigSpawnChance * spawnMultiplier) {
+                meteorArray.add(createMeteorFromEnemy(launcher, true));
+            }
+        }
+    }
+
+    private double getObjectSpawnMultiplierForLevel() {
+        return level >= 4 ? 0.4 : 1.0;
+    }
+
+    private Meteor createMeteorFromEnemy(Block enemy, boolean bigMeteor) {
+        int meteorSize = bigMeteor ? tileSize : Math.max(tileSize / 2, 12);
+        int spawnX = enemy.x + enemy.width / 2 - meteorSize / 2;
+        int spawnY = enemy.y + enemy.height;
+        int speed = bigMeteor ? Balance.BIG_METEOR_SPEED : Balance.SMALL_METEOR_SPEED;
+        Image img = bigMeteor ? meteorBigImg : meteorSmallImg;
+        return new Meteor(spawnX, spawnY, meteorSize, meteorSize, speed, img);
+    }
+
+    private Map<Integer, Block> getBottomAliveEnemiesByColumn() {
+        Map<Integer, Block> launchers = new HashMap<>();
+        for (int i = 0; i < alienArray.size(); i++) {
+            Block alien = alienArray.get(i);
+            if (!alien.alive) {
+                continue;
+            }
+
+            Block current = launchers.get(alien.col);
+            if (current == null || alien.row > current.row) {
+                launchers.put(alien.col, alien);
+            }
+        }
+        return launchers;
+    }
+
     private void cleanupBullets() {
-        while (!bulletArray.isEmpty() && (bulletArray.get(0).used || bulletArray.get(0).y < 0)) {
+        while (!bulletArray.isEmpty() && (!bulletArray.get(0).active || bulletArray.get(0).y < -bulletHeight)) {
             bulletArray.remove(0);
         }
     }
 
+    private void cleanupEnemyShots() {
+        while (!enemyShotArray.isEmpty() && (!enemyShotArray.get(0).active || enemyShotArray.get(0).y > boarderheight)) {
+            enemyShotArray.remove(0);
+        }
+    }
+
+    private void cleanupMeteors() {
+        while (!meteorArray.isEmpty() && (!meteorArray.get(0).active || meteorArray.get(0).y > boarderheight)) {
+            meteorArray.remove(0);
+        }
+    }
+
+    private void onPlayerHit() {
+        if (invulnerableTicks > 0 || gameState != GameState.RUNNING) {
+            return;
+        }
+
+        lives--;
+        playerDamaged = true;
+        ship.img = playerDamagedImg != null ? playerDamagedImg : playerDefaultImg;
+        invulnerableTicks = Balance.PLAYER_HIT_INVULNERABLE_TICKS;
+
+        if (lives <= 0) {
+            gameOver = true;
+            gameState = GameState.GAME_OVER;
+            return;
+        }
+
+        ship.x = shipX;
+        ship.y = shipY;
+        bulletArray.clear();
+        enemyShotArray.clear();
+        meteorArray.clear();
+    }
+
+    private void resetWavePosition() {
+        for (int i = 0; i < alienArray.size(); i++) {
+            Block alien = alienArray.get(i);
+            alien.preciseY = alienY + alien.row * alienHeight;
+            alien.y = (int) Math.round(alien.preciseY);
+        }
+    }
+
     private void startNextLevel() {
-        score += alienCols * alienRows * 10;
-        level = Math.min(3, level + 1);
+        score += alienCols * alienRows * Balance.SCORE_WAVE_CLEAR;
+        level = Math.min(Balance.MAX_LEVEL, level + 1);
+        lives++;
+        playerDamaged = false;
+        ship.img = playerDefaultImg;
         alienCols = Math.min(alienCols + 1, cols / 2 - 2);
         alienRows = Math.min(alienRows + 1, rows - 6);
-        alienVelocity = alienVelocity < 0 ? -(Math.abs(alienVelocity) + 1) : Math.abs(alienVelocity) + 1;
         bulletArray.clear();
+        enemyShotArray.clear();
+        meteorArray.clear();
         createAliens();
     }
 
     private void startLevel(int targetLevel) {
-        level = Math.max(1, Math.min(3, targetLevel));
-        alienVelocity = Math.max(1, level);
+        level = Math.max(1, Math.min(Balance.MAX_LEVEL, targetLevel));
+        alienDirection = 1;
+        alienSpeed = Balance.alienSpeedForLevel(level);
         bulletArray.clear();
+        enemyShotArray.clear();
+        meteorArray.clear();
         createAliens();
     }
 
     private void createAliens() {
         alienArray.clear();
+        alienSpeed = Balance.alienSpeedForLevel(level);
 
         for (int c = 0; c < alienCols; c++) {
             for (int r = 0; r < alienRows; r++) {
@@ -292,6 +652,8 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         alien.enemyType = enemyType;
         alien.maxHealth = enemyType == ELITE_UFO ? 2 : 1;
         alien.health = alien.maxHealth;
+        alien.col = col;
+        alien.row = row;
         return alien;
     }
 
@@ -306,6 +668,14 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     }
 
     private boolean detectCollision(Block a, Block b) {
+        return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+    }
+
+    private boolean detectCollision(Projectile a, Block b) {
+        return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+    }
+
+    private boolean detectCollision(Meteor a, Block b) {
         return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
     }
 
@@ -332,10 +702,21 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     }
 
     private void setupKeyBindings() {
+        bindKey("ENTER", "startGame", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                if (gameState == GameState.MENU) {
+                    startNewGame();
+                }
+            }
+        });
+
         bindKey("pressed LEFT", "moveLeftPressed", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                movingLeft = true;
+                if (gameState == GameState.RUNNING) {
+                    movingLeft = true;
+                }
             }
         });
 
@@ -349,7 +730,9 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         bindKey("pressed RIGHT", "moveRightPressed", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                movingRight = true;
+                if (gameState == GameState.RUNNING) {
+                    movingRight = true;
+                }
             }
         });
 
@@ -363,11 +746,13 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         bindKey("SPACE", "fireOrRestart", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                if (gameOver) {
+                if (gameState == GameState.GAME_OVER) {
                     restartGame();
                     return;
                 }
-                fireBullet();
+                if (gameState == GameState.RUNNING) {
+                    fireBullet();
+                }
             }
         });
     }
@@ -380,14 +765,25 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     }
 
     private void restartGame() {
+        startNewGame();
+    }
+
+    private void startNewGame() {
         ship.x = shipX;
         ship.y = shipY;
         ship.img = playerDefaultImg;
+        playerDamaged = false;
         movingLeft = false;
         movingRight = false;
+        useRedPlayerShot = true;
         bulletArray.clear();
+        enemyShotArray.clear();
+        meteorArray.clear();
         gameOver = false;
+        gameState = GameState.RUNNING;
         score = 0;
+        lives = Balance.STARTING_LIVES;
+        invulnerableTicks = 0;
         alienCols = 3;
         alienRows = 2;
         startLevel(1);
@@ -395,7 +791,17 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     }
 
     private void fireBullet() {
-        Block bullet = new Block(ship.x + shipWidth * 15 / 32, ship.y, bulletWidth, bulletHeight, null);
+        Image bulletImg;
+        if (level == 1) {
+            bulletImg = laserRedImg;
+        } else {
+            bulletImg = useRedPlayerShot ? laserRedImg : laserGreenImg;
+            useRedPlayerShot = !useRedPlayerShot;
+        }
+
+        int bulletX = ship.x + shipWidth / 2 - bulletWidth / 2;
+        int bulletY = ship.y - bulletHeight;
+        Projectile bullet = new Projectile(bulletX, bulletY, bulletWidth + 4, bulletHeight + 2, bulletVelocity, bulletImg);
         bulletArray.add(bullet);
     }
 
@@ -403,7 +809,7 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     public void actionPerformed(ActionEvent e) {
         move();
         repaint();
-        if (gameOver) {
+        if (gameState == GameState.GAME_OVER) {
             gameLoop.stop();
         }
     }
