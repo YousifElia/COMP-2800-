@@ -1,12 +1,16 @@
 import java.awt.*;
 import java.awt.event.*;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.Random;
 import javax.swing.*;
 
 public class SpaceInvaders extends JPanel implements ActionListener {
-    
-    //board dimensions
+
+    static final int REGULAR_UFO = 1;
+    static final int ELITE_UFO = 2;
+
+    // board dimensions
     int tileSize = 32;
     int rows = 16;
     int cols = 16;
@@ -14,12 +18,12 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     int boarderwidth = tileSize * cols;
     int boarderheight = tileSize * rows;
 
-    Image shipImg;
-    Image alienImg;
-    Image alienCyanImg;
-    Image alienPinkImg;
-    Image alienYellowImg;
-    ArrayList<Image> alienImgArray;
+    Image playerDefaultImg;
+    Image playerLeftImg;
+    Image playerRightImg;
+    Image regularEnemyImg;
+    Image eliteEnemyImg;
+    Image eliteEnemyDamagedImg;
 
     class Block {
         int x;
@@ -29,6 +33,9 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         Image img;
         boolean alive;
         boolean used;
+        int health;
+        int maxHealth;
+        int enemyType;
 
         Block(int x, int y, int width, int height, Image img) {
             this.x = x;
@@ -38,17 +45,21 @@ public class SpaceInvaders extends JPanel implements ActionListener {
             this.img = img;
             this.alive = true;
             this.used = false;
+            this.health = 1;
+            this.maxHealth = 1;
+            this.enemyType = REGULAR_UFO;
         }
     }
 
     // player ship
-
     int shipWidth = tileSize * 2;
     int shipHeight = tileSize;
     int shipX = tileSize * cols / 2 - tileSize;
     int shipY = tileSize * rows - tileSize * 2;
-    int shipVelocity = tileSize;
+    int shipVelocity = 6;
     Block ship;
+    boolean movingLeft = false;
+    boolean movingRight = false;
 
     // aliens
     ArrayList<Block> alienArray;
@@ -61,16 +72,18 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     int alienCols = 3;
     int alienCount = 0;
     int alienVelocity = 1;
+    int level = 1;
 
     // bullets
     ArrayList<Block> bulletArray;
-    int bulletWidth = tileSize / 8;
+    int bulletWidth = Math.max(4, tileSize / 8);
     int bulletHeight = tileSize / 2;
     int bulletVelocity = -10;
 
     Timer gameLoop;
     boolean gameOver = false;
     int score = 0;
+    Random random = new Random();
 
     public SpaceInvaders() {
         setPreferredSize(new Dimension(boarderwidth, boarderheight));
@@ -78,24 +91,19 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         setFocusable(true);
         setupKeyBindings();
 
-        shipImg = new ImageIcon("ship.png").getImage();
-        alienImg = new ImageIcon("alien.png").getImage();
-        alienCyanImg = new ImageIcon("alien_cyan.png").getImage();
-        alienPinkImg = new ImageIcon("alien_pink.png").getImage();
-        alienYellowImg = new ImageIcon("alien_yellow.png").getImage();
+        playerDefaultImg = loadImage("player.png");
+        playerLeftImg = loadImage("playerleft.png", "playerLeft.png");
+        playerRightImg = loadImage("playerright.png", "playerRight.png");
+        regularEnemyImg = loadImage("enemy1.png", "enemyUFO.png");
+        eliteEnemyImg = loadImage("enemy2.png", "enemyShip.png");
+        eliteEnemyDamagedImg = loadImage("enemy2_damaged.png");
 
-        alienImgArray = new ArrayList<>();
-        alienImgArray.add(alienImg);
-        alienImgArray.add(alienCyanImg);
-        alienImgArray.add(alienPinkImg);
-        alienImgArray.add(alienYellowImg);
-
-        ship = new Block(shipX, shipY, shipWidth, shipHeight, shipImg);
+        ship = new Block(shipX, shipY, shipWidth, shipHeight, playerDefaultImg);
         alienArray = new ArrayList<>();
         bulletArray = new ArrayList<>();
 
-        gameLoop = new Timer(16, this); // ~60 FPS
-        createAliens();
+        gameLoop = new Timer(16, this);
+        startLevel(1);
         gameLoop.start();
     }
 
@@ -106,60 +114,113 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     }
 
     public void draw(Graphics g) {
+        drawShip(g);
+        drawAliens(g);
+        drawBullets(g);
+        drawHud(g);
+    }
 
-        // draw ship
-        g.drawImage(ship.img, ship.x, ship.y, ship.width, ship.height, null);
-
-        // draw aliens
-        for (int i = 0; i < alienArray.size(); i++) {
-            Block alien = alienArray.get(i);
-            if (alien.alive) {
-                g.drawImage(alien.img, alien.x, alien.y, alien.width, alien.height, null);
-            }
+    private void drawShip(Graphics g) {
+        if (ship.img != null) {
+            g.drawImage(ship.img, ship.x, ship.y, ship.width, ship.height, null);
+            return;
         }
 
-        // draw bullets
-        g.setColor(Color.white);
+        g.setColor(Color.GREEN);
+        g.fillRect(ship.x, ship.y, ship.width, ship.height);
+    }
+
+    private void drawAliens(Graphics g) {
+        for (int i = 0; i < alienArray.size(); i++) {
+            Block alien = alienArray.get(i);
+            if (!alien.alive) {
+                continue;
+            }
+
+            if (alien.img != null) {
+                g.drawImage(alien.img, alien.x, alien.y, alien.width, alien.height, null);
+            } else {
+                g.setColor(getAlienFallbackColor(alien));
+                g.fillRect(alien.x, alien.y, alien.width, alien.height);
+            }
+        }
+    }
+
+    private void drawBullets(Graphics g) {
+        g.setColor(Color.WHITE);
         for (int i = 0; i < bulletArray.size(); i++) {
             Block bullet = bulletArray.get(i);
             if (!bullet.used) {
-                g.drawRect(bullet.x, bullet.y, bullet.width, bullet.height);
+                g.fillRect(bullet.x, bullet.y, bullet.width, bullet.height);
             }
         }
+    }
 
-        // draw score
-        g.setColor(Color.white);
-        g.setFont(new Font("Arial", Font.BOLD, 32));
+    private void drawHud(Graphics g) {
+        g.setColor(Color.WHITE);
+        g.setFont(new Font("Arial", Font.BOLD, 22));
+        g.drawString("Score: " + score, 10, 28);
+        g.drawString("Level: " + level, 10, 54);
+
         if (gameOver) {
-            g.drawString("Game Over! Final Score: " + score, boarderwidth / 2 - 100, boarderheight / 2);
-        } else {
-            g.drawString("Score: " + score, 10, 35);
+            g.setFont(new Font("Arial", Font.BOLD, 28));
+            g.drawString("Game Over", boarderwidth / 2 - 80, boarderheight / 2 - 10);
+            g.drawString("Press Space to restart", boarderwidth / 2 - 150, boarderheight / 2 + 28);
         }
     }
 
     public void move() {
+        updateShipMovement();
+        moveAliens();
+        moveBullets();
+        cleanupBullets();
 
-        // move aliens
+        if (alienCount == 0 && !gameOver) {
+            startNextLevel();
+        }
+    }
+
+    private void updateShipMovement() {
+        if (movingLeft && !movingRight) {
+            ship.x = Math.max(0, ship.x - shipVelocity);
+            ship.img = playerLeftImg != null ? playerLeftImg : playerDefaultImg;
+        } else if (movingRight && !movingLeft) {
+            ship.x = Math.min(boarderwidth - ship.width, ship.x + shipVelocity);
+            ship.img = playerRightImg != null ? playerRightImg : playerDefaultImg;
+        } else {
+            ship.img = playerDefaultImg;
+        }
+    }
+
+    private void moveAliens() {
+        boolean hitEdge = false;
+
         for (int i = 0; i < alienArray.size(); i++) {
             Block alien = alienArray.get(i);
-            if (alien.alive) {
-                alien.x += alienVelocity;
-                if (alien.x + alien.width >= boarderwidth || alien.x <= 0) {
-                    alienVelocity *= -1;
+            if (!alien.alive) {
+                continue;
+            }
 
-                    // move all aliens down
-                    for (int j = 0; j < alienArray.size(); j++) {
-                        alienArray.get(j).y += alienHeight;
-                    }
-                }
+            alien.x += alienVelocity;
+            if (alien.x + alien.width >= boarderwidth || alien.x <= 0) {
+                hitEdge = true;
+            }
 
-                if (alien.y >= ship.y) {
-                    gameOver = true;
-                }
+            if (alien.y + alien.height >= ship.y) {
+                gameOver = true;
             }
         }
 
-        // move bullets
+        if (hitEdge) {
+            alienVelocity *= -1;
+            for (int i = 0; i < alienArray.size(); i++) {
+                alienArray.get(i).x += alienVelocity;
+                alienArray.get(i).y += alienHeight;
+            }
+        }
+    }
+
+    private void moveBullets() {
         for (int i = 0; i < bulletArray.size(); i++) {
             Block bullet = bulletArray.get(i);
             bullet.y += bulletVelocity;
@@ -167,63 +228,139 @@ public class SpaceInvaders extends JPanel implements ActionListener {
             for (int j = 0; j < alienArray.size(); j++) {
                 Block alien = alienArray.get(j);
                 if (!bullet.used && alien.alive && detectCollision(bullet, alien)) {
-                    alien.alive = false;
-                    bullet.used = true;
-                    alienCount--;
-                    score += 10;
+                    applyBulletHit(alien, bullet);
                 }
             }
         }
-        while (!bulletArray.isEmpty() && (bulletArray.get(0).used || bulletArray.get(0).y < 0)) {
-            bulletArray.remove(0); 
+    }
+
+    private void applyBulletHit(Block alien, Block bullet) {
+        bullet.used = true;
+        alien.health--;
+
+        if (alien.health <= 0) {
+            alien.alive = false;
+            alienCount--;
+            score += alien.enemyType == ELITE_UFO ? 25 : 10;
+            return;
         }
 
-        if (alienCount == 0) {
-            score += alienCols * alienRows * 10; // bonus for clearing all aliens
-            alienCols = Math.min(alienCols + 1, cols / 2 - 2);
-            alienRows = Math.min(alienRows + 1, rows - 6);
-            alienArray.clear();
-            bulletArray.clear();
-            createAliens();
+        if (alien.enemyType == ELITE_UFO && eliteEnemyDamagedImg != null) {
+            alien.img = eliteEnemyDamagedImg;
         }
     }
 
+    private void cleanupBullets() {
+        while (!bulletArray.isEmpty() && (bulletArray.get(0).used || bulletArray.get(0).y < 0)) {
+            bulletArray.remove(0);
+        }
+    }
+
+    private void startNextLevel() {
+        score += alienCols * alienRows * 10;
+        level = Math.min(3, level + 1);
+        alienCols = Math.min(alienCols + 1, cols / 2 - 2);
+        alienRows = Math.min(alienRows + 1, rows - 6);
+        alienVelocity = alienVelocity < 0 ? -(Math.abs(alienVelocity) + 1) : Math.abs(alienVelocity) + 1;
+        bulletArray.clear();
+        createAliens();
+    }
+
+    private void startLevel(int targetLevel) {
+        level = Math.max(1, Math.min(3, targetLevel));
+        alienVelocity = Math.max(1, level);
+        bulletArray.clear();
+        createAliens();
+    }
+
     private void createAliens() {
-        Random random = new Random();
+        alienArray.clear();
+
         for (int c = 0; c < alienCols; c++) {
             for (int r = 0; r < alienRows; r++) {
-                int randomImgIndex = random.nextInt(alienImgArray.size());
-                Block alien = new Block( alienX + c * alienWidth, alienY + r * alienHeight, alienWidth, alienHeight, alienImgArray.get(randomImgIndex));
+                Block alien = createAlienForLevel(c, r);
                 alienArray.add(alien);
             }
         }
         alienCount = alienArray.size();
     }
 
+    private Block createAlienForLevel(int col, int row) {
+        int enemyType = pickEnemyTypeForLevel();
+        Image enemyImage = enemyType == ELITE_UFO ? eliteEnemyImg : regularEnemyImg;
+        Block alien = new Block(alienX + col * alienWidth, alienY + row * alienHeight, alienWidth, alienHeight, enemyImage);
+        alien.enemyType = enemyType;
+        alien.maxHealth = enemyType == ELITE_UFO ? 2 : 1;
+        alien.health = alien.maxHealth;
+        return alien;
+    }
+
+    private int pickEnemyTypeForLevel() {
+        if (level <= 1) {
+            return REGULAR_UFO;
+        }
+        if (level == 2) {
+            return random.nextBoolean() ? REGULAR_UFO : ELITE_UFO;
+        }
+        return ELITE_UFO;
+    }
+
     private boolean detectCollision(Block a, Block b) {
         return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
     }
 
+    private Color getAlienFallbackColor(Block alien) {
+        if (alien.enemyType == ELITE_UFO) {
+            return alien.health == 1 ? Color.ORANGE : Color.RED;
+        }
+        return Color.CYAN;
+    }
+
+    private Image loadImage(String... fileNames) {
+        for (String fileName : fileNames) {
+            File directFile = new File(fileName);
+            if (directFile.exists()) {
+                return new ImageIcon(directFile.getPath()).getImage();
+            }
+
+            File imageDirFile = new File("images", fileName);
+            if (imageDirFile.exists()) {
+                return new ImageIcon(imageDirFile.getPath()).getImage();
+            }
+        }
+        return null;
+    }
+
     private void setupKeyBindings() {
-        bindKey("LEFT", new AbstractAction() {
+        bindKey("pressed LEFT", "moveLeftPressed", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                if (!gameOver && ship.x - shipVelocity >= 0) {
-                    ship.x -= shipVelocity;
-                }
+                movingLeft = true;
             }
         });
 
-        bindKey("RIGHT", new AbstractAction() {
+        bindKey("released LEFT", "moveLeftReleased", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                if (!gameOver && ship.x + shipVelocity + ship.width <= boarderwidth) {
-                    ship.x += shipVelocity;
-                }
+                movingLeft = false;
             }
         });
 
-        bindKey("SPACE", new AbstractAction() {
+        bindKey("pressed RIGHT", "moveRightPressed", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                movingRight = true;
+            }
+        });
+
+        bindKey("released RIGHT", "moveRightReleased", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                movingRight = false;
+            }
+        });
+
+        bindKey("SPACE", "fireOrRestart", new AbstractAction() {
             @Override
             public void actionPerformed(ActionEvent e) {
                 if (gameOver) {
@@ -235,24 +372,25 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         });
     }
 
-    private void bindKey(String keyStroke, Action action) {
+    private void bindKey(String keyStroke, String actionKey, Action action) {
         InputMap inputMap = getInputMap(WHEN_IN_FOCUSED_WINDOW);
         ActionMap actionMap = getActionMap();
-        inputMap.put(KeyStroke.getKeyStroke(keyStroke), keyStroke);
-        actionMap.put(keyStroke, action);
+        inputMap.put(KeyStroke.getKeyStroke(keyStroke), actionKey);
+        actionMap.put(actionKey, action);
     }
 
     private void restartGame() {
         ship.x = shipX;
         ship.y = shipY;
+        ship.img = playerDefaultImg;
+        movingLeft = false;
+        movingRight = false;
         bulletArray.clear();
-        alienArray.clear();
         gameOver = false;
         score = 0;
         alienCols = 3;
         alienRows = 2;
-        alienVelocity = 1;
-        createAliens();
+        startLevel(1);
         gameLoop.start();
     }
 
@@ -270,4 +408,18 @@ public class SpaceInvaders extends JPanel implements ActionListener {
         }
     }
 
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> {
+            JFrame frame = new JFrame("Space Invaders");
+            frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+            frame.setResizable(false);
+
+            SpaceInvaders game = new SpaceInvaders();
+            frame.add(game);
+            frame.pack();
+            frame.setLocationRelativeTo(null);
+            frame.setVisible(true);
+            game.requestFocusInWindow();
+        });
+    }
 }
