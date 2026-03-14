@@ -3,6 +3,7 @@ import java.awt.event.*;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.Map;
 import java.util.Random;
 import javax.swing.*;
@@ -202,7 +203,7 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     int level = 1;
 
     // player bullets
-    ArrayList<Projectile> bulletArray;
+    LinkedList<Projectile> bulletArray;
     ArrayList<Projectile> enemyShotArray;
     ArrayList<Meteor> meteorArray;
     int bulletWidth = Math.max(4, tileSize / 8);
@@ -242,7 +243,7 @@ public class SpaceInvaders extends JPanel implements ActionListener {
 
         ship = new Block(shipX, shipY, shipWidth, shipHeight, playerDefaultImg);
         alienArray = new ArrayList<>();
-        bulletArray = new ArrayList<>();
+        bulletArray = new LinkedList<>();
         enemyShotArray = new ArrayList<>();
         meteorArray = new ArrayList<>();
 
@@ -730,8 +731,8 @@ public class SpaceInvaders extends JPanel implements ActionListener {
     }
 
     private void cleanupBullets() {
-        while (!bulletArray.isEmpty() && (!bulletArray.get(0).active || bulletArray.get(0).y < -bulletHeight)) {
-            bulletArray.remove(0);
+        while (!bulletArray.isEmpty() && (!bulletArray.getFirst().active || bulletArray.getFirst().y < -bulletHeight)) {
+            bulletArray.removeFirst();
         }
     }
 
