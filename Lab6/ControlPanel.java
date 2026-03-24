@@ -6,23 +6,19 @@ public class ControlPanel extends JPanel {
 
         JLabel label = new JLabel("Choose Customization:");
 
-        String[] options = {
-                "None",
-                "Hat",
-                "Glasses",
-                "Armor",
-                "Sword",
-                "Cape"
-        };
+        int armorCount = gamePanel.getArmorCount();
+        String[] options = new String[armorCount + 1];
+        options[0] = "None";
+
+        for (int i = 1; i <= armorCount; i++) {
+            options[i] = "Armor " + i;
+        }
 
         JComboBox<String> comboBox = new JComboBox<>(options);
 
         comboBox.addActionListener(e -> {
-        int selectedIndex = comboBox.getSelectedIndex();
-        gamePanel.setCustomization(selectedIndex);
-
-        // GIVE FOCUS BACK TO GAME PANEL
-        gamePanel.requestFocusInWindow();
+            int selectedIndex = comboBox.getSelectedIndex();
+            gamePanel.setCustomization(selectedIndex);
         });
 
         add(label);
